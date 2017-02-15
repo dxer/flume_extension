@@ -11,6 +11,7 @@ import org.apache.flume.source.AbstractSource;
 import org.apache.flume.source.ExecSourceConfigurationConstants;
 import org.dxer.flume.util.FileTailer;
 import org.dxer.flume.util.FlumeFileTailerHandler;
+import org.dxer.flume.util.PositionManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -48,13 +49,15 @@ public class TailFileSource extends AbstractSource implements EventDrivenSource,
 
     private FileTailer tailer;
 
-    private Long startPosition;
-
     private static final String SUFFIX_RECORD_LOG = ".index";
+
+    private PositionManager manager;
+
 
     private void initFileTailer() {
         tailer = new FileTailer(tailFileName, charset, delayMillis);
 
+        long startPosition = manager.getStartPosition();
         tailer.setStartPosition(startPosition);
 
         FlumeFileTailerHandler handler = new FlumeFileTailerHandler(getChannelProcessor(), sourceCounter, eventList, bufferCount,
@@ -108,6 +111,7 @@ public class TailFileSource extends AbstractSource implements EventDrivenSource,
         }
 
         initFileTailer(); // init tailer
+        manager = new PositionManager(recordFileName);
     }
 }
 

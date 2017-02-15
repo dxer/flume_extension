@@ -128,8 +128,7 @@ public class FileTailer implements Runnable {
             }
         }
     }
-
-
+    
     public void stop() {
         this.running = false;
     }

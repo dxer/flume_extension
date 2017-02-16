@@ -1,6 +1,8 @@
 package org.dxer.flume.util;
 
 import com.google.common.base.Strings;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.RandomAccessFile;
@@ -10,6 +12,8 @@ import java.io.RandomAccessFile;
  */
 
 public class PositionManager {
+
+    private static final Logger logger = LoggerFactory.getLogger(PositionManager.class);
 
     private RandomAccessFile reader;
 
@@ -102,6 +106,8 @@ public class PositionManager {
             }
         }
 
+       // logger.info("recordPosition");
+
         try {
             if (lineNum == 9999) {
                 reader.setLength(0);
@@ -111,12 +117,12 @@ public class PositionManager {
             }
 
             File file = readEvent.getReadFile();
-            long last = file.lastModified();
+            String fileKey = readEvent.getFileKey();
             long lineNum = readEvent.getLineNum();
             long pointer = readEvent.getFilePointer();
 
             StringBuilder content = new StringBuilder();
-            content.append(last).append("|").append(lineNum).append("|").append(pointer);
+            content.append(fileKey).append("|").append(lineNum).append("|").append(pointer).append("\n");
 
             reader.write(content.toString().getBytes());
             lineNum++;

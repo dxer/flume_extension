@@ -21,8 +21,9 @@ import java.util.concurrent.ScheduledFuture;
 
 public class FlumeFileTailerHandler implements FileTailerHandler {
 
-    private static final Logger logger = LoggerFactory.getLogger(FlumeFileTailerHandler.class);
+//    private static final Logger logger = LoggerFactory.getLogger(FlumeFileTailerHandler.class);
 
+    private static final Logger logger = LoggerFactory.getLogger(FileTailer.class);
 
     private ChannelProcessor channelProcessor;
     private SourceCounter sourceCounter;
@@ -35,9 +36,11 @@ public class FlumeFileTailerHandler implements FileTailerHandler {
     private ScheduledExecutorService timedFlushService;
     private ScheduledFuture<?> future;
 
+    private PositionManager manager;
+
     private Long lineMaxSize = null;
 
-    public FlumeFileTailerHandler(ChannelProcessor channelProcessor, SourceCounter sourceCounter, List<Event> eventList, int bufferCount,
+    public FlumeFileTailerHandler(ChannelProcessor channelProcessor, SourceCounter sourceCounter, List<Event> eventList, PositionManager manager, int bufferCount,
                                   long batchTimeout, Charset charset) {
         this.channelProcessor = channelProcessor;
         this.sourceCounter = sourceCounter;
@@ -45,6 +48,7 @@ public class FlumeFileTailerHandler implements FileTailerHandler {
         this.eventList = eventList;
         this.bufferCount = bufferCount;
         this.batchTimeout = batchTimeout;
+        this.manager = manager;
     }
 
     public Long getLineMaxSize() {
@@ -57,21 +61,20 @@ public class FlumeFileTailerHandler implements FileTailerHandler {
 
     @Override
     public void process(ReadEvent readEvent) {
-        if (readEvent == null) {
+        if (readEvent == null || Strings.isNullOrEmpty(readEvent.getLine())) {
             return;
         }
 
         String line = readEvent.getLine();
 
-        if (lineMaxSize != null && !Strings.isNullOrEmpty(line) && line.getBytes().length > lineMaxSize) {
-            return;
-        }
-
-        synchronized (eventList) {
-            sourceCounter.incrementEventReceivedCount();
-            eventList.add(EventBuilder.withBody(readEvent.getLine().getBytes(charset)));
-            if (eventList.size() >= bufferCount || timeout()) {
-                flushEventBatch(eventList);
+        if (lineMaxSize == null || (lineMaxSize != null && !Strings.isNullOrEmpty(line) && line.getBytes().length <= lineMaxSize.longValue())) {
+            synchronized (eventList) {
+                sourceCounter.incrementEventReceivedCount();
+                eventList.add(EventBuilder.withBody(line.getBytes(charset)));
+                if (eventList.size() >= bufferCount || timeout()) {
+                    flushEventBatch(eventList);
+                    manager.recordPosition(readEvent);
+                }
             }
         }
     }

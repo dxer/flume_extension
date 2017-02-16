@@ -10,14 +10,26 @@ import java.io.Serializable;
 public class ReadEvent implements Serializable {
 
     private File readFile;
+    private String fileKey;
+
     private String line;
     private long lineNum;
     private long filePointer;
 
-    public ReadEvent(File file, String line, long lineNum, long filePointer) {
+    public ReadEvent(File readFile, String fileKey, String line, long lineNum, long filePointer) {
         this.readFile = readFile;
+        this.fileKey = fileKey;
+        this.line = line;
         this.lineNum = lineNum;
         this.filePointer = filePointer;
+    }
+
+    public String getFileKey() {
+        return fileKey;
+    }
+
+    public void setFileKey(String fileKey) {
+        this.fileKey = fileKey;
     }
 
     public String getLine() {

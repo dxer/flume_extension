@@ -54,20 +54,17 @@ public class TailFileSource extends AbstractSource implements EventDrivenSource,
     private PositionManager manager;
 
 
-    private void initFileTailer() {
+    @Override
+    public synchronized void start() {
         tailer = new FileTailer(tailFileName, charset, delayMillis);
-
+        manager = new PositionManager(recordFileName);
         long startPosition = manager.getStartPosition();
         tailer.setStartPosition(startPosition);
 
-        FlumeFileTailerHandler handler = new FlumeFileTailerHandler(getChannelProcessor(), sourceCounter, eventList, bufferCount,
+        FlumeFileTailerHandler handler = new FlumeFileTailerHandler(getChannelProcessor(), sourceCounter, eventList, manager, bufferCount,
                 batchTimeout, charset);
         handler.setLineMaxSize(lineMaxSize); // line max size limit
         tailer.addFileTailerHandler(handler);
-    }
-
-    @Override
-    public synchronized void start() {
         new Thread(tailer).start();
 
         sourceCounter.start();
@@ -90,7 +87,7 @@ public class TailFileSource extends AbstractSource implements EventDrivenSource,
         recordFileName = context.getString("recordFile", null);
         charset = Charset.forName(context.getString(ExecSourceConfigurationConstants.CHARSET,
                 ExecSourceConfigurationConstants.DEFAULT_CHARSET));
-        delayMillis = context.getLong("delayMillis", 500l);
+        delayMillis = context.getLong("delayMillis", 200l);
 
         bufferCount = context.getInteger(ExecSourceConfigurationConstants.CONFIG_BATCH_SIZE,
                 ExecSourceConfigurationConstants.DEFAULT_BATCH_SIZE);
@@ -109,9 +106,6 @@ public class TailFileSource extends AbstractSource implements EventDrivenSource,
         if (sourceCounter == null) {
             sourceCounter = new SourceCounter(getName());
         }
-
-        initFileTailer(); // init tailer
-        manager = new PositionManager(recordFileName);
     }
 }
 

@@ -1,6 +1,6 @@
 package org.dxer.flume.util;
 
-import org.apache.commons.io.FileUtils;
+import com.google.common.base.Strings;
 import org.apache.commons.io.IOUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -74,7 +74,7 @@ public class FileTailer implements Runnable {
     public void run() {
         RandomAccessFile reader = null;
 
-        long last = 0; // The last time the file was checked for changes
+        String lastFileKey = null;
         long position = 0l; //  getPosition(file); // position within the file
         long lineNum = 0;
 
@@ -93,29 +93,27 @@ public class FileTailer implements Runnable {
                 }
             }
             try {
-                File file = new File(tailFileName);
-                final boolean newer = FileUtils.isFileNewer(file, last); // IO-279, must be done first
+                final boolean newer = FileUtil.isFileNewer(tailFileName, lastFileKey); // IO-279, must be done first
 
                 if (newer) { // if is a new file
                     lineNum = 0l;
-                    last = file.lastModified();
+                    lastFileKey = FileUtil.getFileKey(tailFileName);
                     if (isFirst && startPosition != null && startPosition.longValue() > 0) {
                         position = startPosition;
                         isFirst = false;
                     } else {
                         position = 0l; // a new file, set postition to 0
                     }
-                    logger.info("tail a new file: " + tailFileName + ", last: " + last);
+                    logger.info("tail a new file: " + tailFileName + ", lastFileKey: " + lastFileKey);
                 }
-
 
                 reader.seek(position);
 
                 while ((line = reader.readLine()) != null) { // read file
                     line = new String(line.getBytes(charset), "UTF-8"); //编码转换
                     lineNum = lineNum + 1;
-                    long filePoiner = reader.getFilePointer();
-                    ReadEvent readEvent = new ReadEvent(file, line, lineNum, filePoiner);
+                    position = reader.getFilePointer();
+                    ReadEvent readEvent = new ReadEvent(new File(tailFileName), lastFileKey, line, lineNum, position);
                     handle(readEvent); // handle line
                 }
                 sleep(delayMillis);
@@ -128,7 +126,7 @@ public class FileTailer implements Runnable {
             }
         }
     }
-    
+
     public void stop() {
         this.running = false;
     }

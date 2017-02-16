@@ -1,6 +1,7 @@
 [TOC]
 
 # flume_extension
+包含一些为了处理flume日志收集的问题，自定义的一些插件
 
 ###  LineMaxSizeInterceptor
 

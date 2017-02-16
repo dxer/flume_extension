@@ -10,7 +10,7 @@ LineMaxSizeInterceptor是一个用来处理日志数据太长问题的拦截器�
 ```
 # 忽略整行数据
 a1.sources.r1.interceptors=i1
-a1.sources.r1.interceptors.i1.type=com._21cn.common.flume.interceptor.LineMaxSizeInterceptor$Builder
+a1.sources.r1.interceptors.i1.type=org.dxer.flume.interceptor.LineMaxSizeInterceptor$Builder
 # 最大字节数
 a1.sources.r1.interceptors.i1.lineMaxSize=2 
 # 是否忽略整行
@@ -22,7 +22,7 @@ a1.sources.r1.interceptors.i1.charset=utf-8
 ```
 # 忽略一行中某个字段数据
 a1.sources.r1.interceptors=i1
-a1.sources.r1.interceptors.i1.type=com._21cn.common.flume.interceptor.LineMaxSizeInterceptor$Builder
+a1.sources.r1.interceptors.i1.type=org.dxer.flume.interceptor.LineMaxSizeInterceptor$Builder
 # 最大字节数
 a1.sources.r1.interceptors.i1.lineMaxSize=2 
 # 是否忽略整行

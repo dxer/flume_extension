@@ -9,8 +9,14 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.RandomAccessFile;
 import java.nio.charset.Charset;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Created by linghf on 2017/2/7.
@@ -34,6 +40,14 @@ public class FileTailer implements Runnable {
 
     private Long startPosition = null;
 
+    private TailReader tailReader;
+
+    private TailReader lastTailReader;
+
+    private long position = 0l;
+
+    private Map<Long, TailReader> tailReaderMap = new LinkedHashMap<Long, TailReader>();
+
     /**
      * The tailer will run as long as this value is true.
      */
@@ -42,49 +56,121 @@ public class FileTailer implements Runnable {
     private List<FileTailerHandler> handlers = new ArrayList<FileTailerHandler>();
 
     public FileTailer(String tailFileName) {
-        this(tailFileName, DEFAULT_CHARSET, DEFAULT_DELAY_MILLIS);
+        this(tailFileName, null, DEFAULT_CHARSET, DEFAULT_DELAY_MILLIS);
     }
 
     public FileTailer(String tailFileName, long delayMillis) {
-        this(tailFileName, DEFAULT_CHARSET, delayMillis);
+        this(tailFileName, null, DEFAULT_CHARSET, delayMillis);
     }
 
-    public FileTailer(String tailFileName, Charset charset, long delayMillis) {
+    public FileTailer(String tailFileName, TailReader lastTailReader, Charset charset, long delayMillis) {
         this.tailFileName = tailFileName;
+        this.lastTailReader = lastTailReader;
         this.charset = charset;
         this.delayMillis = delayMillis;
-    }
-
-    public Long getStartPosition() {
-        return startPosition;
-    }
-
-    public void setStartPosition(Long startPosition) {
-        this.startPosition = startPosition;
     }
 
     public void addFileTailerHandler(FileTailerHandler handler) {
         this.handlers.add(handler);
     }
 
-    public void removeFileTailerHandler(FileTailerHandler handler) {
-        this.handlers.remove(handler);
+
+    public Map<Long, TailReader> getTailReaderMap() {
+        return tailReaderMap;
+    }
+
+    /**
+     * get file key
+     *
+     * @param file
+     * @return
+     */
+    private String getFileKey(String file) {
+        try {
+            Path path = Paths.get(file);
+            BasicFileAttributes bfa = Files.readAttributes(path, BasicFileAttributes.class);
+            Object objectKey = bfa.fileKey();
+            return objectKey.toString();
+        } catch (Exception e) {
+        }
+        return null;
+    }
+
+
+    private long getInode(String fileName) {
+        try {
+            return (long) Files.getAttribute(new File(fileName).toPath(), "unix:ino");
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return -1;
+    }
+
+    private String getFileNameByINode(String path, long inode) {
+        File dir = new File(path);
+        File[] files = dir.listFiles();
+        for (File f : files) {
+            long node = getInode(f.getAbsolutePath());
+            if (node == inode) {
+                return f.getAbsolutePath();
+            }
+        }
+        return null;
+    }
+
+    /**
+     * is a new file
+     *
+     * @param file
+     * @param lastFileINode
+     * @return
+     */
+    private boolean isFileNewer(String file, final long lastFileINode) {
+        if (lastFileINode < 0) {
+            return true;
+        }
+        long newFileINode = getInode(file);
+        return !(newFileINode == lastFileINode);
+    }
+
+    private String getParentPath(String tailFileName) {
+        File file = new File(tailFileName);
+        return file.getParent();
     }
 
     public void run() {
         RandomAccessFile reader = null;
 
-        String lastFileKey = null;
-        long position = 0l; //  getPosition(file); // position within the file
-        long lineNum = 0;
+        long lastFileINode = -1;
+        if (lastTailReader != null) {
+            lastFileINode = lastTailReader.getInode();
+        }
 
         boolean isFirst = true;
 
+        long lineNum = 0;
+
+        String currentTailFileName = null;
         String line = null;
+
+        String parentDir = getParentPath(tailFileName);
+
         while (isRunning()) {
             while (reader == null) {
                 try {
-                    reader = new RandomAccessFile(tailFileName, RAF_MODE);
+                    String lastTailFileName = null;
+                    if (isFirst) {
+                        lastTailFileName = getFileNameByINode(parentDir, lastFileINode);
+                    }
+
+                    if (!Strings.isNullOrEmpty(lastTailFileName)) { //
+                        currentTailFileName = lastTailFileName;
+                        isFirst = false;
+                    } else {
+                        currentTailFileName = tailFileName;
+                    }
+                    reader = new RandomAccessFile(currentTailFileName, RAF_MODE);
+
                 } catch (final FileNotFoundException e) {
 
                 }
@@ -93,18 +179,25 @@ public class FileTailer implements Runnable {
                 }
             }
             try {
-                final boolean newer = FileUtil.isFileNewer(tailFileName, lastFileKey); // IO-279, must be done first
+                final boolean newer = isFileNewer(currentTailFileName, lastFileINode);
 
                 if (newer) { // if is a new file
                     lineNum = 0l;
-                    lastFileKey = FileUtil.getFileKey(tailFileName);
-                    if (isFirst && startPosition != null && startPosition.longValue() > 0) {
-                        position = startPosition;
-                        isFirst = false;
-                    } else {
-                        position = 0l; // a new file, set postition to 0
+                    String lastTailFileName = getFileNameByINode(parentDir, lastFileINode);
+                    if (!Strings.isNullOrEmpty(lastTailFileName)) {
+                        tailReader = new TailReader(lastTailFileName, lastFileINode, new File(lastTailFileName).length());
+                        tailReaderMap.put(lastFileINode, tailReader);
                     }
-                    logger.info("tail a new file: " + tailFileName + ", lastFileKey: " + lastFileKey);
+
+                    lastFileINode = getInode(currentTailFileName);
+                    position = 0l; // a new file, set postition to 0
+
+                    tailReader = new TailReader(currentTailFileName, lastFileINode, position);
+                    tailReaderMap.put(lastFileINode, tailReader);
+                    logger.info("tail a new file: " + currentTailFileName + ", inode: " + lastFileINode + ", pos: " + position + ", tailReaderMap: " + tailReaderMap);
+                } else {
+                    tailReader = new TailReader(currentTailFileName, lastFileINode, position);
+                    tailReaderMap.put(lastFileINode, tailReader);
                 }
 
                 reader.seek(position);
@@ -113,8 +206,9 @@ public class FileTailer implements Runnable {
                     line = new String(line.getBytes(charset), "UTF-8"); //编码转换
                     lineNum = lineNum + 1;
                     position = reader.getFilePointer();
-                    ReadEvent readEvent = new ReadEvent(new File(tailFileName), lastFileKey, line, lineNum, position);
-                    handle(readEvent); // handle line
+                    tailReader.setPosition(position); // update position
+                    logger.info("tailReaderMap: " + tailReaderMap);
+                    handle(line); // handle line
                 }
                 sleep(delayMillis);
             } catch (Exception e) {
@@ -150,14 +244,18 @@ public class FileTailer implements Runnable {
         }
     }
 
-    private void handle(ReadEvent readEvent) {
-        if (readEvent != null && handlers != null && !handlers.isEmpty()) {
+    private void handle(String line) {
+        if (!Strings.isNullOrEmpty(line) && handlers != null && !handlers.isEmpty()) {
             for (FileTailerHandler handler : handlers) {
-                handler.process(readEvent);
+                handler.process(line);
             }
         }
     }
 
+
+    public TailReader getTailReader() {
+        return tailReader;
+    }
 
     public static void main(String[] args) {
         FileTailer tailer = new FileTailer("/home/hadoop/flume/logs/testlog.log", 500l);

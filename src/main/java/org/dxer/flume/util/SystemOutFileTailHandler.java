@@ -6,7 +6,7 @@ package org.dxer.flume.util;
 
 public class SystemOutFileTailHandler implements FileTailerHandler {
     @Override
-    public void process(ReadEvent readEvent) {
-        System.out.println(readEvent.getLine());
+    public void process(String line) {
+        System.out.println(line);
     }
 }

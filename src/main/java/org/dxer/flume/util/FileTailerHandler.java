@@ -6,6 +6,6 @@ package org.dxer.flume.util;
 
 public interface FileTailerHandler {
 
-    public void process(String line);
+    public void process(FileTailer.TailEvent tailEvent);
 
 }

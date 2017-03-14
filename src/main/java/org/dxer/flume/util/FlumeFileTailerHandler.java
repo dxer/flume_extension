@@ -21,9 +21,7 @@ import java.util.concurrent.ScheduledFuture;
 
 public class FlumeFileTailerHandler implements FileTailerHandler {
 
-//    private static final Logger logger = LoggerFactory.getLogger(FlumeFileTailerHandler.class);
-
-    private static final Logger logger = LoggerFactory.getLogger(FileTailer.class);
+    private static final Logger logger = LoggerFactory.getLogger(FlumeFileTailerHandler.class);
 
     private ChannelProcessor channelProcessor;
     private SourceCounter sourceCounter;
@@ -57,10 +55,11 @@ public class FlumeFileTailerHandler implements FileTailerHandler {
     }
 
     @Override
-    public void process(String line) {
-        if (Strings.isNullOrEmpty(line)) {
+    public void process(FileTailer.TailEvent tailEvent) {
+        if (tailEvent == null || Strings.isNullOrEmpty(tailEvent.getLine())) {
             return;
         }
+        String line = tailEvent.getLine();
 
         if (lineMaxSize == null || (lineMaxSize != null && !Strings.isNullOrEmpty(line) && line.getBytes().length <= lineMaxSize.longValue())) {
             synchronized (eventList) {

@@ -3,7 +3,7 @@ package org.dxer.flume.util;
 import java.io.Serializable;
 
 /**
- * Created by linghf on 2017/2/15.
+ * Created by linghf on 2017/3/13.
  */
 
 public class TailReader implements Serializable {

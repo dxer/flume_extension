@@ -4,7 +4,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.google.gson.Gson;
-import com.google.gson.stream.JsonReader;
 import org.apache.flume.Context;
 import org.apache.flume.Event;
 import org.apache.flume.EventDrivenSource;
@@ -76,8 +75,9 @@ public class TailFileSource extends AbstractSource implements EventDrivenSource,
 
     @Override
     public synchronized void start() {
-        TailReader tailReader = getLastTailReader(positionFilePath);
-        tailer = new FileTailer(tailFileName, tailReader, charset, delayMillis);
+        tailer = new FileTailer(tailFileName, charset, delayMillis);
+        TailReader lastTailReader = getLastTailReader(positionFilePath);
+        tailer.addLastTailReader(lastTailReader);
 
         FlumeFileTailerHandler handler = new FlumeFileTailerHandler(getChannelProcessor(), sourceCounter, eventList, bufferCount,
                 batchTimeout, charset);
@@ -173,50 +173,32 @@ public class TailFileSource extends AbstractSource implements EventDrivenSource,
      * @return
      */
     private TailReader getLastTailReader(String positionFilePath) {
-        Long inode = null;
-        Long position = null;
-        FileReader fr = null;
-        JsonReader jr = null;
-        String file = null;
         TailReader tailReader = null;
+        FileReader reader = null;
         try {
-            fr = new FileReader(positionFilePath);
-            if (fr == null) {
-                return null;
-            }
+            reader = new FileReader(positionFilePath);
+            TailReader[] tailReaders = new Gson().fromJson(reader, TailReader[].class);
 
-            jr = new JsonReader(fr);
-            if (jr == null) {
-                return null;
-            }
-            jr.beginArray();
-
-            while (jr.hasNext()) {
-                inode = null;
-                position = null;
-                file = null;
-                jr.beginObject();
-                while (jr.hasNext()) {
-                    switch (jr.nextName()) {
-                        case "inode":
-                            inode = jr.nextLong();
-                            break;
-                        case "pos":
-                            position = jr.nextLong();
-                            break;
-                        case "file":
-                            file = jr.nextString();
-                            break;
+            if (tailReaders != null && tailReaders.length > 0) {
+                for (int i = 0, length = tailReaders.length; i < length; i++) {
+                    if (tailer != null) {
+                        tailer.addTailReader(tailReaders[i]);
+                    }
+                    tailer.addTailReader(tailReaders[i]);
+                    if (i == length - 1) {
+                        tailReader = tailReaders[i];
                     }
                 }
-                jr.endObject();
-
-                tailReader = new TailReader(file, inode, position);
             }
-
-            jr.endArray();
         } catch (Exception e) {
             e.printStackTrace();
+        } finally {
+            if (reader != null) {
+                try {
+                    reader.close();
+                } catch (Exception e) {
+                }
+            }
         }
         return tailReader;
     }

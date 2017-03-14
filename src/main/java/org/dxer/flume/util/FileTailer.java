@@ -8,11 +8,9 @@ import org.slf4j.LoggerFactory;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.RandomAccessFile;
+import java.io.Serializable;
 import java.nio.charset.Charset;
 import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -56,18 +54,21 @@ public class FileTailer implements Runnable {
     private List<FileTailerHandler> handlers = new ArrayList<FileTailerHandler>();
 
     public FileTailer(String tailFileName) {
-        this(tailFileName, null, DEFAULT_CHARSET, DEFAULT_DELAY_MILLIS);
+        this(tailFileName, DEFAULT_CHARSET, DEFAULT_DELAY_MILLIS);
     }
 
     public FileTailer(String tailFileName, long delayMillis) {
-        this(tailFileName, null, DEFAULT_CHARSET, delayMillis);
+        this(tailFileName, DEFAULT_CHARSET, delayMillis);
     }
 
-    public FileTailer(String tailFileName, TailReader lastTailReader, Charset charset, long delayMillis) {
+    public FileTailer(String tailFileName, Charset charset, long delayMillis) {
         this.tailFileName = tailFileName;
-        this.lastTailReader = lastTailReader;
         this.charset = charset;
         this.delayMillis = delayMillis;
+    }
+
+    public void addLastTailReader(TailReader lastTailReader) {
+        this.lastTailReader = lastTailReader;
     }
 
     public void addFileTailerHandler(FileTailerHandler handler) {
@@ -75,28 +76,20 @@ public class FileTailer implements Runnable {
     }
 
 
+    public void addTailReader(TailReader tailReader) {
+        tailReaderMap.put(tailReader.getInode(), tailReader);
+    }
+
     public Map<Long, TailReader> getTailReaderMap() {
         return tailReaderMap;
     }
 
     /**
-     * get file key
+     * get file inode for linux
      *
-     * @param file
+     * @param fileName
      * @return
      */
-    private String getFileKey(String file) {
-        try {
-            Path path = Paths.get(file);
-            BasicFileAttributes bfa = Files.readAttributes(path, BasicFileAttributes.class);
-            Object objectKey = bfa.fileKey();
-            return objectKey.toString();
-        } catch (Exception e) {
-        }
-        return null;
-    }
-
-
     private long getInode(String fileName) {
         try {
             return (long) Files.getAttribute(new File(fileName).toPath(), "unix:ino");
@@ -106,6 +99,13 @@ public class FileTailer implements Runnable {
         return -1;
     }
 
+    /**
+     * get file name by inode
+     *
+     * @param path
+     * @param inode
+     * @return
+     */
     private String getFileNameByINode(String path, long inode) {
         File dir = new File(path);
         File[] files = dir.listFiles();
@@ -133,6 +133,10 @@ public class FileTailer implements Runnable {
         return !(newFileINode == lastFileINode);
     }
 
+    /**
+     * @param tailFileName
+     * @return
+     */
     private String getParentPath(String tailFileName) {
         File file = new File(tailFileName);
         return file.getParent();
@@ -142,28 +146,27 @@ public class FileTailer implements Runnable {
         RandomAccessFile reader = null;
 
         long lastFileINode = -1;
-        if (lastTailReader != null) {
+        if (lastTailReader != null) { // get lastFileInode
             lastFileINode = lastTailReader.getInode();
         }
 
         boolean isFirst = true;
-
-        long lineNum = 0;
 
         String currentTailFileName = null;
         String line = null;
 
         String parentDir = getParentPath(tailFileName);
 
+        long lineNum = 0;
         while (isRunning()) {
             while (reader == null) {
                 try {
                     String lastTailFileName = null;
-                    if (isFirst) {
+                    if (isFirst && lastFileINode > 0) {
                         lastTailFileName = getFileNameByINode(parentDir, lastFileINode);
                     }
 
-                    if (!Strings.isNullOrEmpty(lastTailFileName)) { //
+                    if (!Strings.isNullOrEmpty(lastTailFileName)) {
                         currentTailFileName = lastTailFileName;
                         isFirst = false;
                     } else {
@@ -182,19 +185,18 @@ public class FileTailer implements Runnable {
                 final boolean newer = isFileNewer(currentTailFileName, lastFileINode);
 
                 if (newer) { // if is a new file
-                    lineNum = 0l;
                     String lastTailFileName = getFileNameByINode(parentDir, lastFileINode);
                     if (!Strings.isNullOrEmpty(lastTailFileName)) {
                         tailReader = new TailReader(lastTailFileName, lastFileINode, new File(lastTailFileName).length());
                         tailReaderMap.put(lastFileINode, tailReader);
                     }
-
+                    lineNum = 0l;
                     lastFileINode = getInode(currentTailFileName);
                     position = 0l; // a new file, set postition to 0
 
                     tailReader = new TailReader(currentTailFileName, lastFileINode, position);
                     tailReaderMap.put(lastFileINode, tailReader);
-                    logger.info("tail a new file: " + currentTailFileName + ", inode: " + lastFileINode + ", pos: " + position + ", tailReaderMap: " + tailReaderMap);
+                    logger.info("tail a new file: " + currentTailFileName + ", inode: " + lastFileINode + ", pos: " + position);
                 } else {
                     tailReader = new TailReader(currentTailFileName, lastFileINode, position);
                     tailReaderMap.put(lastFileINode, tailReader);
@@ -204,11 +206,12 @@ public class FileTailer implements Runnable {
 
                 while ((line = reader.readLine()) != null) { // read file
                     line = new String(line.getBytes(charset), "UTF-8"); //编码转换
-                    lineNum = lineNum + 1;
+                    lineNum++;
                     position = reader.getFilePointer();
                     tailReader.setPosition(position); // update position
                     logger.info("tailReaderMap: " + tailReaderMap);
-                    handle(line); // handle line
+                    TailEvent event = new TailEvent(currentTailFileName, line, lineNum);
+                    handle(event); // handle line
                 }
                 sleep(delayMillis);
             } catch (Exception e) {
@@ -244,10 +247,10 @@ public class FileTailer implements Runnable {
         }
     }
 
-    private void handle(String line) {
-        if (!Strings.isNullOrEmpty(line) && handlers != null && !handlers.isEmpty()) {
+    private void handle(TailEvent event) {
+        if (event != null && !Strings.isNullOrEmpty(event.getLine()) && handlers != null && !handlers.isEmpty()) {
             for (FileTailerHandler handler : handlers) {
-                handler.process(line);
+                handler.process(event);
             }
         }
     }
@@ -257,8 +260,42 @@ public class FileTailer implements Runnable {
         return tailReader;
     }
 
-    public static void main(String[] args) {
-        FileTailer tailer = new FileTailer("/home/hadoop/flume/logs/testlog.log", 500l);
-        new Thread(tailer).start();
+    public static class TailEvent implements Serializable {
+
+        private String file;
+
+        private String line;
+
+        private long lineNum;
+
+        public TailEvent(String file, String line, long lineNum) {
+            this.file = file;
+            this.line = line;
+            this.lineNum = lineNum;
+        }
+
+        public String getFile() {
+            return file;
+        }
+
+        public void setFile(String file) {
+            this.file = file;
+        }
+
+        public String getLine() {
+            return line;
+        }
+
+        public void setLine(String line) {
+            this.line = line;
+        }
+
+        public long getLineNum() {
+            return lineNum;
+        }
+
+        public void setLineNum(long lineNum) {
+            this.lineNum = lineNum;
+        }
     }
 }
